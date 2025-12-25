@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Plus } from 'lucide-react';
+import { AlertCircle, Plus, Check } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Center, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
@@ -361,6 +361,19 @@ const LabelsStepContent: React.FC<LabelsStepContentProps> = ({
 
   return (
     <div className="p-4 space-y-4 overflow-auto max-h-[calc(100vh-200px)]">
+      {/* Labels Status - Small indicator */}
+      {labels.length > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <Check className="w-5 h-5 text-green-500" />
+          <span className="text-sm font-tech text-green-600">
+            {labels.length} label{labels.length !== 1 ? 's' : ''} placed
+          </span>
+          <span className="text-xs text-muted-foreground font-tech ml-auto">
+            View in Properties Panel →
+          </span>
+        </div>
+      )}
+
       {/* 3D Preview */}
       <PreviewCard text={labelText} fontSize={fontSize} depth={depth} font={font} />
 

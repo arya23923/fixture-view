@@ -1,15 +1,19 @@
 /**
  * HolePlacement Component
- * 
+ *
  * Handles the interactive placement of mounting holes on the baseplate.
- * Similar to SupportPlacement but simpler - holes are just positioned on XZ plane.
+ * Uses raycasting to determine placement position on XZ plane.
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { useThree, useFrame } from '@react-three/fiber';
-import { PlacedHole, HoleConfig } from './types';
+import { useThree } from '@react-three/fiber';
+import type { PlacedHole, HoleConfig } from './types';
 import HoleMesh from './HoleMesh';
+
+// =============================================================================
+// Types
+// =============================================================================
 
 interface HolePlacementProps {
   /** Whether placement mode is active */
@@ -28,6 +32,102 @@ interface HolePlacementProps {
   baseTarget?: THREE.Object3D | null;
 }
 
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/**
+ * Generates a unique hole ID using timestamp and random string.
+ */
+function generateHoleId(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 11);
+  return `hole-${timestamp}-${random}`;
+}
+
+/**
+ * Converts mouse event to normalized device coordinates (NDC).
+ */
+function getNormalizedMouseCoords(
+  event: PointerEvent,
+  canvas: HTMLCanvasElement
+): THREE.Vector2 {
+  const rect = canvas.getBoundingClientRect();
+  return new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+}
+
+/**
+ * Checks if an event target is a UI element that should block placement.
+ */
+function isUIElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.closest('.ui-panel') !== null;
+}
+
+// =============================================================================
+// Custom Hook - Raycasting
+// =============================================================================
+
+/**
+ * Hook that handles raycasting for hole placement.
+ * Returns the current preview position based on mouse location.
+ */
+function useHoleRaycasting(
+  active: boolean,
+  baseTopY: number,
+  baseTarget: THREE.Object3D | null | undefined,
+  camera: THREE.Camera,
+  canvas: HTMLCanvasElement
+): [THREE.Vector2 | null, (event: PointerEvent) => void] {
+  const [previewPosition, setPreviewPosition] = useState<THREE.Vector2 | null>(null);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const planeRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseTopY));
+  const hitPointRef = useRef(new THREE.Vector3());
+
+  // Update plane when baseTopY changes
+  useEffect(() => {
+    planeRef.current.constant = -baseTopY;
+  }, [baseTopY]);
+
+  const handlePointerMove = useCallback((event: PointerEvent) => {
+    if (!active) return;
+
+    const mouse = getNormalizedMouseCoords(event, canvas);
+    raycasterRef.current.setFromCamera(mouse, camera);
+
+    // Try to hit baseplate first for accurate placement
+    if (baseTarget) {
+      const intersects = raycasterRef.current.intersectObject(baseTarget, true);
+      if (intersects.length > 0) {
+        const { point } = intersects[0];
+        setPreviewPosition(new THREE.Vector2(point.x, point.z));
+        return;
+      }
+    }
+
+    // Fallback to plane intersection when not hitting baseplate
+    if (raycasterRef.current.ray.intersectPlane(planeRef.current, hitPointRef.current)) {
+      setPreviewPosition(new THREE.Vector2(hitPointRef.current.x, hitPointRef.current.z));
+    }
+  }, [active, camera, canvas, baseTarget]);
+
+  // Clear preview when deactivated
+  useEffect(() => {
+    if (!active) {
+      setPreviewPosition(null);
+    }
+  }, [active]);
+
+  return [previewPosition, handlePointerMove];
+}
+
+// =============================================================================
+// Main Component
+// =============================================================================
+
 const HolePlacement: React.FC<HolePlacementProps> = ({
   active,
   holeConfig,
@@ -38,83 +138,48 @@ const HolePlacement: React.FC<HolePlacementProps> = ({
   baseTarget,
 }) => {
   const { gl, camera } = useThree();
-  const [previewPosition, setPreviewPosition] = useState<THREE.Vector2 | null>(null);
-  const raycasterRef = useRef(new THREE.Raycaster());
-  const planeRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseTopY));
-  const hitPointRef = useRef(new THREE.Vector3());
-  
-  // Update plane when baseTopY changes
-  useEffect(() => {
-    planeRef.current.constant = -baseTopY;
-  }, [baseTopY]);
-  
-  // Handle mouse move for preview
-  const handlePointerMove = useCallback((event: PointerEvent) => {
-    if (!active || !holeConfig) return;
-    
-    const rect = gl.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    
-    raycasterRef.current.setFromCamera(mouse, camera);
-    
-    // Try to hit baseplate first
-    if (baseTarget) {
-      const intersects = raycasterRef.current.intersectObject(baseTarget, true);
-      if (intersects.length > 0) {
-        const point = intersects[0].point;
-        setPreviewPosition(new THREE.Vector2(point.x, point.z));
-        return;
-      }
-    }
-    
-    // Fallback to plane intersection
-    if (raycasterRef.current.ray.intersectPlane(planeRef.current, hitPointRef.current)) {
-      setPreviewPosition(new THREE.Vector2(hitPointRef.current.x, hitPointRef.current.z));
-    }
-  }, [active, holeConfig, camera, gl, baseTarget]);
-  
+
+  // Use custom raycasting hook
+  const [previewPosition, handlePointerMove] = useHoleRaycasting(
+    active && holeConfig !== null,
+    baseTopY,
+    baseTarget,
+    camera,
+    gl.domElement
+  );
+
   // Handle click to place hole
   const handleClick = useCallback((event: MouseEvent) => {
     if (!active || !holeConfig || !previewPosition) return;
-    
-    // Prevent if clicking on UI elements
-    if ((event.target as HTMLElement).closest('.ui-panel')) return;
-    
+    if (isUIElement(event.target)) return;
+
     const placedHole: PlacedHole = {
       ...holeConfig,
-      id: `hole-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: generateHoleId(),
       position: previewPosition.clone(),
       depth,
     };
-    
+
     onPlace(placedHole);
   }, [active, holeConfig, previewPosition, depth, onPlace]);
-  
-  // Handle escape to cancel
+
+  // Handle escape key to cancel placement
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.key === 'Escape' && active) {
       onCancel();
     }
   }, [active, onCancel]);
-  
+
   // Set up event listeners
   useEffect(() => {
-    if (!active) {
-      setPreviewPosition(null);
-      return;
-    }
-    
+    if (!active) return undefined;
+
     const canvas = gl.domElement;
     canvas.addEventListener('pointermove', handlePointerMove);
     canvas.addEventListener('click', handleClick);
     window.addEventListener('keydown', handleKeyDown);
-    
-    // Change cursor
     canvas.style.cursor = 'crosshair';
-    
+
     return () => {
       canvas.removeEventListener('pointermove', handlePointerMove);
       canvas.removeEventListener('click', handleClick);
@@ -122,25 +187,25 @@ const HolePlacement: React.FC<HolePlacementProps> = ({
       canvas.style.cursor = 'auto';
     };
   }, [active, gl, handlePointerMove, handleClick, handleKeyDown]);
-  
-  // Don't render if not active or no config
+
+  // Don't render if not active, no config, or no preview position
   if (!active || !holeConfig || !previewPosition) {
     return null;
   }
-  
-  // Create preview hole
+
+  // Create preview hole for rendering
   const previewHole: PlacedHole = {
     ...holeConfig,
     id: 'preview',
     position: previewPosition,
     depth,
   };
-  
+
   return (
     <HoleMesh
       hole={previewHole}
       baseTopY={baseTopY}
-      isPreview={true}
+      isPreview
     />
   );
 };

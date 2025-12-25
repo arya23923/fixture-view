@@ -28,7 +28,8 @@ import {
   ExternalLink,
   MousePointer,
   X,
-  Loader2
+  Loader2,
+  Check
 } from 'lucide-react';
 import { 
   ClampModel, 
@@ -52,6 +53,7 @@ interface ClampProgress {
 
 interface ClampsStepContentProps {
   hasWorkpiece?: boolean;
+  clampsCount?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,6 +160,7 @@ ProcessingCard.displayName = 'ProcessingCard';
 
 const ClampsStepContent: React.FC<ClampsStepContentProps> = ({
   hasWorkpiece = false,
+  clampsCount = 0,
 }) => {
   const [categories, setCategories] = useState<ClampCategoryGroup[]>([]);
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
@@ -259,6 +262,19 @@ const ClampsStepContent: React.FC<ClampsStepContentProps> = ({
 
   return (
     <div className="p-4 space-y-4">
+      {/* Clamps Status - Small indicator */}
+      {clampsCount > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <Check className="w-5 h-5 text-green-500" />
+          <span className="text-sm font-tech text-green-600">
+            {clampsCount} clamp{clampsCount !== 1 ? 's' : ''} placed
+          </span>
+          <span className="text-xs text-muted-foreground font-tech ml-auto">
+            View in Properties Panel →
+          </span>
+        </div>
+      )}
+
       {/* Clamp Categories */}
       <div className="space-y-2">
         <p className="text-xs font-tech text-muted-foreground uppercase tracking-wider">

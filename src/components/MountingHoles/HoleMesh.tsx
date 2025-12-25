@@ -1,16 +1,20 @@
 /**
  * HoleMesh Component
- * 
+ *
  * Renders a preview of a mounting hole on the baseplate.
- * This shows a visual indicator of where the hole will be drilled.
+ * Shows a visual indicator of where the hole will be drilled.
  * The actual CSG operation happens on the baseplate geometry.
  */
 
 import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { ThreeEvent, useFrame } from '@react-three/fiber';
-import { PlacedHole } from './types';
+import type { PlacedHole } from './types';
 import { createHoleGeometry } from './holeGeometry';
+
+// =============================================================================
+// Types
+// =============================================================================
 
 interface HoleMeshProps {
   /** The placed hole configuration */
@@ -27,15 +31,39 @@ interface HoleMeshProps {
   onDoubleClick?: () => void;
 }
 
-// Materials for different states - low opacity to see CSG result beneath
-const previewMaterial = new THREE.MeshStandardMaterial({
+interface HoleRingIndicatorProps {
+  diameter: number;
+  position: THREE.Vector2;
+  baseTopY: number;
+  isSelected: boolean;
+  isPreview: boolean;
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Default hole diameter when invalid value provided */
+const DEFAULT_DIAMETER = 6;
+
+/** Ring indicator thickness in mm */
+const RING_THICKNESS = 0.15;
+
+/** Center marker radius in mm */
+const CENTER_MARKER_RADIUS = 0.5;
+
+// =============================================================================
+// Materials (shared instances to reduce memory)
+// =============================================================================
+
+const PREVIEW_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x00aaff,
   transparent: true,
   opacity: 0.25,
   side: THREE.DoubleSide,
 });
 
-const normalMaterial = new THREE.MeshStandardMaterial({
+const NORMAL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x444444,
   transparent: true,
   opacity: 0.2,
@@ -44,7 +72,7 @@ const normalMaterial = new THREE.MeshStandardMaterial({
   roughness: 0.7,
 });
 
-const selectedMaterial = new THREE.MeshStandardMaterial({
+const SELECTED_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x00ff88,
   transparent: true,
   opacity: 0.3,
@@ -53,42 +81,86 @@ const selectedMaterial = new THREE.MeshStandardMaterial({
   emissiveIntensity: 0.3,
 });
 
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
 /**
- * Ring indicator showing hole position on baseplate surface
+ * Safely parses a number with a fallback default.
  */
-const HoleRingIndicator: React.FC<{
+function safeNum(value: number | undefined | null, defaultValue: number): number {
+  const num = Number(value);
+  return Number.isNaN(num) ? defaultValue : num;
+}
+
+/**
+ * Returns the display diameter based on hole type.
+ * Countersink/counterbore holes show their larger surface diameter.
+ */
+function getDisplayDiameter(hole: PlacedHole, safeDiameters: {
   diameter: number;
-  position: THREE.Vector2;
-  baseTopY: number;
-  isSelected: boolean;
-  isPreview: boolean;
-}> = ({ diameter, position, baseTopY, isSelected, isPreview }) => {
+  countersinkDiameter: number;
+  counterboreDiameter: number;
+}): number {
+  switch (hole.type) {
+    case 'counterbore':
+      return safeDiameters.counterboreDiameter;
+    case 'countersink':
+      return safeDiameters.countersinkDiameter;
+    default:
+      return safeDiameters.diameter;
+  }
+}
+
+/**
+ * Returns the appropriate color for the ring indicator.
+ */
+function getRingColor(isPreview: boolean, isSelected: boolean): number {
+  if (isPreview) return 0x00aaff;
+  if (isSelected) return 0x00ff88;
+  return 0xff6600;
+}
+
+// =============================================================================
+// Sub-Components
+// =============================================================================
+
+/**
+ * Ring indicator showing hole position on baseplate surface.
+ * Animates slightly when in preview mode.
+ */
+const HoleRingIndicator: React.FC<HoleRingIndicatorProps> = React.memo(({
+  diameter,
+  position,
+  baseTopY,
+  isSelected,
+  isPreview,
+}) => {
   const ringRef = useRef<THREE.Mesh>(null);
-  
-  // Validate inputs to prevent NaN geometries
-  const safePosition = useMemo(() => {
-    const x = Number(position?.x) || 0;
-    const y = Number(position?.y) || 0;
-    return { x, y };
-  }, [position]);
-  
-  const safeDiameter = Number(diameter) || 6; // Default 6mm if invalid
-  
-  // Animate preview ring
+
+  const safePosition = useMemo(() => ({
+    x: safeNum(position?.x, 0),
+    y: safeNum(position?.y, 0),
+  }), [position]);
+
+  const safeDiameter = safeNum(diameter, DEFAULT_DIAMETER);
+
+  // Animate preview ring with subtle pulsing effect
   useFrame(({ clock }) => {
     if (ringRef.current && isPreview) {
-      ringRef.current.scale.setScalar(1 + Math.sin(clock.getElapsedTime() * 3) * 0.05);
+      const scale = 1 + Math.sin(clock.getElapsedTime() * 3) * 0.05;
+      ringRef.current.scale.setScalar(scale);
     }
   });
-  
+
   const ringGeometry = useMemo(() => {
     const innerRadius = Math.max(0.5, safeDiameter / 2);
-    const outerRadius = innerRadius + 0.15; // 0.15mm ring width (very thin outline)
+    const outerRadius = innerRadius + RING_THICKNESS;
     return new THREE.RingGeometry(innerRadius, outerRadius, 32);
   }, [safeDiameter]);
-  
-  const color = isPreview ? 0x00aaff : isSelected ? 0x00ff88 : 0xff6600;
-  
+
+  const color = getRingColor(isPreview, isSelected);
+
   return (
     <mesh
       ref={ringRef}
@@ -99,10 +171,19 @@ const HoleRingIndicator: React.FC<{
       <meshBasicMaterial color={color} side={THREE.DoubleSide} />
     </mesh>
   );
-};
+});
+
+HoleRingIndicator.displayName = 'HoleRingIndicator';
+
+// =============================================================================
+// Main Component
+// =============================================================================
 
 /**
- * Main hole mesh component
+ * HoleMesh - Renders a mounting hole visualization.
+ *
+ * The mesh itself is invisible (used for click detection).
+ * Visual feedback is provided via ring indicator and optional center marker.
  */
 const HoleMesh: React.FC<HoleMeshProps> = ({
   hole,
@@ -113,50 +194,59 @@ const HoleMesh: React.FC<HoleMeshProps> = ({
   onDoubleClick,
 }) => {
   const meshRef = useRef<THREE.Mesh>(null);
-  
-  // Validate hole data to prevent NaN geometries
-  const safeHole = useMemo(() => {
-    return {
-      ...hole,
-      diameter: Number(hole.diameter) || 6,
-      depth: Number(hole.depth) || 20,
-      position: {
-        x: Number(hole.position?.x) || 0,
-        y: Number(hole.position?.y) || 0,
-      },
-      countersinkAngle: Number(hole.countersinkAngle) || 90,
-      countersinkDiameter: Number(hole.countersinkDiameter) || (Number(hole.diameter) || 6) * 2,
-      counterboreDiameter: Number(hole.counterboreDiameter) || (Number(hole.diameter) || 6) * 1.8,
-      counterboreDepth: Number(hole.counterboreDepth) || 5,
-    };
-  }, [hole]);
-  
+
+  // Sanitize hole data to prevent NaN geometries
+  const safeHole = useMemo(() => ({
+    ...hole,
+    diameter: safeNum(hole.diameter, DEFAULT_DIAMETER),
+    depth: safeNum(hole.depth, 20),
+    position: {
+      x: safeNum(hole.position?.x, 0),
+      y: safeNum(hole.position?.y, 0),
+    },
+    countersinkAngle: safeNum(hole.countersinkAngle, 90),
+    countersinkDiameter: safeNum(hole.countersinkDiameter, (safeNum(hole.diameter, DEFAULT_DIAMETER)) * 2),
+    counterboreDiameter: safeNum(hole.counterboreDiameter, (safeNum(hole.diameter, DEFAULT_DIAMETER)) * 1.8),
+    counterboreDepth: safeNum(hole.counterboreDepth, 5),
+  }), [hole]);
+
   // Create hole geometry with safe values
-  const geometry = useMemo(() => {
-    return createHoleGeometry(safeHole as PlacedHole);
-  }, [safeHole]);
-  
-  // Select appropriate material
+  const geometry = useMemo(
+    () => createHoleGeometry(safeHole as PlacedHole),
+    [safeHole]
+  );
+
+  // Select appropriate material based on state
   const material = useMemo(() => {
-    if (isPreview) return previewMaterial;
-    if (isSelected) return selectedMaterial;
-    return normalMaterial;
+    if (isPreview) return PREVIEW_MATERIAL;
+    if (isSelected) return SELECTED_MATERIAL;
+    return NORMAL_MATERIAL;
   }, [isPreview, isSelected]);
-  
-  // Handle click events
+
+  // Event handlers
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onClick?.();
   };
-  
+
   const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onDoubleClick?.();
   };
-  
+
+  // Display diameter for ring indicator
+  const displayDiameter = getDisplayDiameter(hole, {
+    diameter: safeHole.diameter,
+    countersinkDiameter: safeHole.countersinkDiameter,
+    counterboreDiameter: safeHole.counterboreDiameter,
+  });
+
+  const showCenterMarker = isSelected || isPreview;
+  const centerMarkerColor = isPreview ? 0x00aaff : 0x00ff88;
+
   return (
     <group>
-      {/* Hole geometry - invisible mesh just for click detection */}
+      {/* Invisible mesh for click detection */}
       <mesh
         ref={meshRef}
         position={[safeHole.position.x, baseTopY, safeHole.position.y]}
@@ -166,26 +256,24 @@ const HoleMesh: React.FC<HoleMeshProps> = ({
         onDoubleClick={handleDoubleClick}
         visible={false}
       />
-      
+
       {/* Ring indicator on surface */}
       <HoleRingIndicator
-        diameter={hole.type === 'counterbore' ? safeHole.counterboreDiameter :
-                  hole.type === 'countersink' ? safeHole.countersinkDiameter :
-                  safeHole.diameter}
+        diameter={displayDiameter}
         position={new THREE.Vector2(safeHole.position.x, safeHole.position.y)}
         baseTopY={baseTopY}
         isSelected={isSelected}
         isPreview={isPreview}
       />
-      
-      {/* Center marker */}
-      {(isSelected || isPreview) && (
+
+      {/* Center marker (shown when selected or previewing) */}
+      {showCenterMarker && (
         <mesh
           position={[safeHole.position.x, baseTopY + 0.2, safeHole.position.y]}
           rotation={[-Math.PI / 2, 0, 0]}
         >
-          <circleGeometry args={[0.5, 16]} />
-          <meshBasicMaterial color={isPreview ? 0x00aaff : 0x00ff88} />
+          <circleGeometry args={[CENTER_MARKER_RADIUS, 16]} />
+          <meshBasicMaterial color={centerMarkerColor} />
         </mesh>
       )}
     </group>

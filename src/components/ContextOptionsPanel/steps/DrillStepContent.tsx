@@ -5,7 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Circle, Plus, RotateCcw, MousePointer, X } from 'lucide-react';
+import { AlertCircle, Plus, RotateCcw, MousePointer, X, Check } from 'lucide-react';
 import { ThroughHoleIcon, CounterSinkIcon, CounterBoreIcon } from './HoleTypeIcons';
 import { PlacedHole } from '@/components/MountingHoles/types';
 
@@ -185,6 +185,19 @@ const DrillStepContent: React.FC<DrillStepContentProps> = ({
 
   return (
     <div className="p-4 space-y-4">
+      {/* Holes Status - Small indicator */}
+      {holes.length > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <Check className="w-5 h-5 text-green-500" />
+          <span className="text-sm font-tech text-green-600">
+            {holes.length} hole{holes.length !== 1 ? 's' : ''} placed
+          </span>
+          <span className="text-xs text-muted-foreground font-tech ml-auto">
+            View in Properties Panel →
+          </span>
+        </div>
+      )}
+
       {/* Hole Type */}
       <div className="space-y-2">
         <Label className="text-xs font-tech text-muted-foreground uppercase tracking-wider">
@@ -419,30 +432,6 @@ const DrillStepContent: React.FC<DrillStepContentProps> = ({
           <Plus className="w-4 h-4 mr-2" />
           Add Hole (click to place)
         </Button>
-      )}
-
-      {/* Existing Holes */}
-      {holes.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-tech text-muted-foreground uppercase tracking-wider">
-            Holes ({holes.length})
-          </p>
-          <div className="space-y-1 max-h-[100px] overflow-auto">
-            {holes.map((hole, index) => (
-              <Card key={hole.id} className="tech-glass p-2">
-                <div className="flex items-center gap-2">
-                  <Circle className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs font-tech flex-1">
-                    Hole {index + 1} - Ø{hole.diameter}mm
-                  </span>
-                  <Badge variant="outline" className="text-[8px]">
-                    {hole.type === 'through' ? 'Through' : hole.type === 'countersink' ? 'C-Sink' : 'C-Bore'}
-                  </Badge>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
       )}
 
       {/* Info */}

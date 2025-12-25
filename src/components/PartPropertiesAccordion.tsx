@@ -50,7 +50,7 @@ interface PartPropertiesAccordionProps {
   onPartSelect?: (partId: string | null) => void;
   onRemovePart?: (partId: string) => void;
   onClearFile?: () => void;
-  baseplate?: { id: string; type: string; padding?: number; height?: number } | null;
+  baseplate?: { id: string; type: string; padding?: number; height?: number; depth?: number } | null;
   onRemoveBaseplate?: () => void;
   onUpdateBaseplate?: (updates: { padding?: number; height?: number }) => void;
   supports?: AnySupport[];
@@ -409,6 +409,7 @@ const PartPropertiesAccordion: React.FC<PartPropertiesAccordionProps> = ({
       <MountingHolesAccordion
         holes={holes || []}
         hasBaseplate={!!baseplate}
+        baseplateDepth={baseplate?.depth ?? 20}
         selectedHoleId={selectedHoleId}
         onSelectHole={onHoleSelect || (() => {})}
         onUpdateHole={onHoleUpdate || (() => {})}

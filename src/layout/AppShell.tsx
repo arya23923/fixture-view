@@ -139,7 +139,7 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
     const [isPropertiesCollapsed, setIsPropertiesCollapsed] = useState(false);
     const [undoStack, setUndoStack] = useState<any[]>([]);
     const [redoStack, setRedoStack] = useState<any[]>([]);
-    const [currentBaseplate, setCurrentBaseplate] = useState<{ id: string; type: string; padding?: number; height?: number } | null>(null);
+    const [currentBaseplate, setCurrentBaseplate] = useState<{ id: string; type: string; padding?: number; height?: number; depth?: number } | null>(null);
 
     // Workflow State
     const [activeStep, setActiveStep] = useState<WorkflowStep>('import');
@@ -851,11 +851,14 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
     const handleBaseplateCreated = (e: CustomEvent) => {
       const { option, dimensions } = e.detail;
       const baseplateId = `baseplate-${Date.now()}`;
+      // dimensions.height is the baseplate thickness (depth in Y direction)
+      const baseplateDepth = dimensions?.height ?? 4;
       setCurrentBaseplate({ 
         id: baseplateId, 
         type: option, 
         padding: dimensions?.padding || dimensions?.oversizeXY, 
-        height: dimensions?.height 
+        height: dimensions?.height,
+        depth: baseplateDepth
       });
       // Mark baseplates step as completed
       if (!completedSteps.includes('baseplates')) {
@@ -1056,6 +1059,11 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
             return [...prev, label];
           });
           setSelectedLabelId(label.id);
+          
+          // Mark labels step as completed
+          if (!completedSteps.includes('labels')) {
+            setCompletedSteps(prev => [...prev, 'labels']);
+          }
         }
       };
 
@@ -1064,16 +1072,33 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
         setSelectedLabelId(labelId);
       };
 
+      const onLabelDelete = (e: CustomEvent) => {
+        const labelId = e.detail as string;
+        setLabels(prev => {
+          const newLabels = prev.filter(l => l.id !== labelId);
+          // Remove completion if no labels left
+          if (newLabels.length === 0) {
+            setCompletedSteps(prevSteps => prevSteps.filter(s => s !== 'labels'));
+          }
+          return newLabels;
+        });
+        if (selectedLabelId === labelId) {
+          setSelectedLabelId(null);
+        }
+      };
+
       window.addEventListener('label-update', onLabelUpdate as EventListener);
       window.addEventListener('label-added', onLabelAdded as EventListener);
       window.addEventListener('label-selected', onLabelSelect as EventListener);
+      window.addEventListener('label-delete', onLabelDelete as EventListener);
 
       return () => {
         window.removeEventListener('label-update', onLabelUpdate as EventListener);
         window.removeEventListener('label-added', onLabelAdded as EventListener);
         window.removeEventListener('label-selected', onLabelSelect as EventListener);
+        window.removeEventListener('label-delete', onLabelDelete as EventListener);
       };
-    }, []);
+    }, [completedSteps, selectedLabelId]);
 
     // Listen for clamp events from 3D scene
     React.useEffect(() => {
@@ -1086,6 +1111,11 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
             return [...prev, clamp];
           });
           setSelectedClampId(clamp.id);
+          
+          // Mark clamps step as completed
+          if (!completedSteps.includes('clamps')) {
+            setCompletedSteps(prev => [...prev, 'clamps']);
+          }
         }
       };
 
@@ -1101,7 +1131,14 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
 
       const onClampDelete = (e: CustomEvent) => {
         const clampId = e.detail as string;
-        setClamps(prev => prev.filter(c => c.id !== clampId));
+        setClamps(prev => {
+          const newClamps = prev.filter(c => c.id !== clampId);
+          // Remove completion if no clamps left
+          if (newClamps.length === 0) {
+            setCompletedSteps(prevSteps => prevSteps.filter(s => s !== 'clamps'));
+          }
+          return newClamps;
+        });
         if (selectedClampId === clampId) {
           setSelectedClampId(null);
         }
@@ -1118,7 +1155,7 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
         window.removeEventListener('clamp-selected', onClampSelect as EventListener);
         window.removeEventListener('clamp-delete', onClampDelete as EventListener);
       };
-    }, [selectedClampId]);
+    }, [selectedClampId, completedSteps]);
 
     // Handle clamp update from properties panel
     const handleClampUpdate = useCallback((clampId: string, updates: Partial<PlacedClamp>) => {
@@ -1454,6 +1491,7 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
                   {activeStep === 'clamps' && (
                     <ClampsStepContent
                       hasWorkpiece={!!actualFile}
+                      clampsCount={clamps.length}
                     />
                   )}
                   {activeStep === 'labels' && (
@@ -1463,20 +1501,35 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
                       hasSupports={supports.length > 0}
                       labels={labels as any}
                       selectedLabelId={selectedLabelId}
-                      onAddLabel={(label) => setLabels(prev => [...prev, {
-                        id: label.id,
-                        text: label.text,
-                        fontSize: label.fontSize,
-                        depth: label.depth,
-                        position: { x: label.position.x, y: label.position.y, z: label.position.z },
-                        rotation: { x: label.rotation.x, y: label.rotation.y, z: label.rotation.z }
-                      }])}
+                      onAddLabel={(label) => {
+                        setLabels(prev => [...prev, {
+                          id: label.id,
+                          text: label.text,
+                          fontSize: label.fontSize,
+                          depth: label.depth,
+                          position: { x: label.position.x, y: label.position.y, z: label.position.z },
+                          rotation: { x: label.rotation.x, y: label.rotation.y, z: label.rotation.z }
+                        }]);
+                        // Mark labels step as completed
+                        if (!completedSteps.includes('labels')) {
+                          setCompletedSteps(prev => [...prev, 'labels']);
+                        }
+                      }}
                       onUpdateLabel={(labelId, updates) => setLabels(prev => prev.map(l => 
                         l.id === labelId ? { ...l, ...updates } as any : l
                       ))}
                       onDeleteLabel={(labelId) => {
-                        setLabels(prev => prev.filter(l => l.id !== labelId));
+                        setLabels(prev => {
+                          const newLabels = prev.filter(l => l.id !== labelId);
+                          // Remove completion if no labels left
+                          if (newLabels.length === 0) {
+                            setCompletedSteps(prevSteps => prevSteps.filter(s => s !== 'labels'));
+                          }
+                          return newLabels;
+                        });
                         if (selectedLabelId === labelId) setSelectedLabelId(null);
+                        // Dispatch for 3D scene
+                        window.dispatchEvent(new CustomEvent('label-delete', { detail: labelId }));
                       }}
                       onSelectLabel={setSelectedLabelId}
                     />
@@ -1656,7 +1709,14 @@ const AppShell = forwardRef<AppShellHandle, AppShellProps>(
                     }));
                   }}
                   onLabelDelete={(labelId) => {
-                    setLabels(prev => prev.filter(l => l.id !== labelId));
+                    setLabels(prev => {
+                      const newLabels = prev.filter(l => l.id !== labelId);
+                      // Remove completion if no labels left
+                      if (newLabels.length === 0) {
+                        setCompletedSteps(prevSteps => prevSteps.filter(s => s !== 'labels'));
+                      }
+                      return newLabels;
+                    });
                     if (selectedLabelId === labelId) setSelectedLabelId(null);
                     // Dispatch event for 3D scene
                     window.dispatchEvent(new CustomEvent('label-delete', { detail: labelId }));

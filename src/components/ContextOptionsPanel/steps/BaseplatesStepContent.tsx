@@ -162,7 +162,7 @@ const BaseplatesStepContent: React.FC<BaseplatesStepContentProps> = ({
           <Slider
             value={[height]}
             onValueChange={([v]) => setHeight(v)}
-            min={5}
+            min={3}
             max={50}
             step={1}
             className="w-full"

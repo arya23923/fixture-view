@@ -1,6 +1,6 @@
 /**
  * HoleTransformControls
- * 
+ *
  * Transform controls for mounting holes using PivotControls from @react-three/drei.
  * Allows XZ plane translation only (no Y-axis movement or rotation).
  * Styled consistently with SupportTransformControls.
@@ -10,7 +10,11 @@ import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import { useThree } from '@react-three/fiber';
 import { PivotControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { PlacedHole } from './types';
+import type { PlacedHole } from './types';
+
+// =============================================================================
+// Types
+// =============================================================================
 
 interface HoleTransformControlsProps {
   hole: PlacedHole;
@@ -21,8 +25,49 @@ interface HoleTransformControlsProps {
   onDeselect: () => void;
 }
 
-// Reusable THREE.js objects to avoid allocations
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Height offset above baseplate for gizmo positioning */
+const GIZMO_Y_OFFSET = 5;
+
+/** Minimum scale for gizmo visibility */
+const MIN_GIZMO_SCALE = 30;
+
+/** Gizmo scale multiplier based on hole diameter */
+const GIZMO_SCALE_MULTIPLIER = 3;
+
+// =============================================================================
+// Reusable Objects (avoid per-frame allocations)
+// =============================================================================
+
 const tempPosition = new THREE.Vector3();
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/**
+ * Safely parses a number with a fallback default.
+ */
+function safeNum(value: number | undefined | null, defaultValue: number): number {
+  const num = Number(value);
+  return Number.isNaN(num) ? defaultValue : num;
+}
+
+/**
+ * Dispatches a custom event to enable/disable orbit controls.
+ */
+function setOrbitControlsEnabled(enabled: boolean): void {
+  window.dispatchEvent(
+    new CustomEvent('disable-orbit-controls', { detail: { disabled: !enabled } })
+  );
+}
+
+// =============================================================================
+// Main Component
+// =============================================================================
 
 const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
   hole,
@@ -36,74 +81,78 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
   const pivotRef = useRef<THREE.Group>(null);
   const anchorRef = useRef<THREE.Mesh>(null);
   const isDraggingRef = useRef(false);
-  
-  // Store initial group transform at drag start to prevent feedback loop
   const dragStartGroupPos = useRef<THREE.Vector3 | null>(null);
-  
-  // Get hole position
-  const holeX = Number(hole.position?.x) || 0;
-  const holeZ = Number(hole.position?.y) || 0; // position.y is Z in world coords
-  const holeDiameter = Number(hole.diameter) || 6;
-  
-  // Position the gizmo at the top of the baseplate where the hole is
-  const gizmoY = baseTopY + 5; // Slightly above the surface
-  
-  // Use locked position during drag to prevent janky feedback loop
-  const displayPos = isDraggingRef.current && dragStartGroupPos.current 
-    ? dragStartGroupPos.current 
-    : new THREE.Vector3(holeX, gizmoY, holeZ);
-  
-  // Gizmo scale based on hole size
-  const gizmoScale = useMemo(() => {
-    return Math.max(holeDiameter * 3, 30);
-  }, [holeDiameter]);
 
-  // Read world transform from the anchor mesh (inside PivotControls)
-  const getTransformFromAnchor = useCallback(() => {
+  // Extract and sanitize hole position
+  const holeX = safeNum(hole.position?.x, 0);
+  const holeZ = safeNum(hole.position?.y, 0); // position.y is Z in world coords
+  const holeDiameter = safeNum(hole.diameter, 6);
+  const gizmoY = baseTopY + GIZMO_Y_OFFSET;
+
+  // Use locked position during drag to prevent feedback loop
+  const displayPos = useMemo(() => {
+    if (isDraggingRef.current && dragStartGroupPos.current) {
+      return dragStartGroupPos.current;
+    }
+    return new THREE.Vector3(holeX, gizmoY, holeZ);
+  }, [holeX, holeZ, gizmoY]);
+
+  // Calculate gizmo scale based on hole size
+  const gizmoScale = useMemo(
+    () => Math.max(holeDiameter * GIZMO_SCALE_MULTIPLIER, MIN_GIZMO_SCALE),
+    [holeDiameter]
+  );
+
+  /**
+   * Reads world transform from the anchor mesh inside PivotControls.
+   */
+  const getTransformFromAnchor = useCallback((): THREE.Vector2 | null => {
     if (!anchorRef.current) return null;
-    
+
     anchorRef.current.updateMatrixWorld(true);
     anchorRef.current.getWorldPosition(tempPosition);
-    
-    // Convert world position to hole position (X, Z)
-    // Note: hole.position uses Vector2 where x = worldX, y = worldZ
-    const newPosition = new THREE.Vector2(tempPosition.x, tempPosition.z);
-    
-    return newPosition;
+
+    // Convert world position to hole position (x = worldX, y = worldZ)
+    return new THREE.Vector2(tempPosition.x, tempPosition.z);
   }, []);
 
-  // Handle drag - read transform from anchor mesh
+  /**
+   * Handles drag movement - reads transform from anchor mesh.
+   */
   const handleDrag = useCallback(() => {
     if (!isDraggingRef.current) return;
-    
+
     const newPosition = getTransformFromAnchor();
     if (newPosition) {
       onTransformChange(newPosition);
     }
   }, [getTransformFromAnchor, onTransformChange]);
 
-  // Drag start - lock the group position to prevent feedback loop
+  /**
+   * Handles drag start - locks group position to prevent feedback loop.
+   */
   const handleDragStart = useCallback(() => {
     isDraggingRef.current = true;
     dragStartGroupPos.current = new THREE.Vector3(holeX, gizmoY, holeZ);
-    window.dispatchEvent(new CustomEvent('disable-orbit-controls', { detail: { disabled: true } }));
+    setOrbitControlsEnabled(false);
     gl.domElement.style.cursor = 'grabbing';
     onDragStartProp?.();
   }, [gl, holeX, holeZ, gizmoY, onDragStartProp]);
 
-  // Drag end - emit final transform and reset pivot
+  /**
+   * Handles drag end - emits final transform and resets pivot.
+   */
   const handleDragEnd = useCallback(() => {
     isDraggingRef.current = false;
     dragStartGroupPos.current = null;
-    window.dispatchEvent(new CustomEvent('disable-orbit-controls', { detail: { disabled: false } }));
+    setOrbitControlsEnabled(true);
     gl.domElement.style.cursor = 'auto';
-    
-    // Read final transform from anchor
+
     const newPosition = getTransformFromAnchor();
     if (newPosition) {
       onTransformEnd(newPosition);
     }
-    
+
     // Reset pivot to identity after drag ends
     if (pivotRef.current) {
       pivotRef.current.matrix.identity();
@@ -114,23 +163,26 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
     }
   }, [gl, getTransformFromAnchor, onTransformEnd]);
 
-  // Click outside to close - when clicking on ANY UI element outside canvas
+  // =============================================================================
+  // Event Handlers for Deselection
+  // =============================================================================
+
+  // Click outside canvas to deselect
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      
-      // If click is on canvas, allow it (for camera controls) - don't deselect
+
+      // Allow clicks on canvas (for camera controls) - don't deselect
       if (gl.domElement.contains(target) || gl.domElement === target) return;
-      
-      // Any click outside the canvas (on UI elements, sidebar, panels, etc.) should deselect
-      // This matches behavior of other gizmos
+
+      // Any click outside canvas (UI elements, sidebar, panels) should deselect
       onDeselect();
     };
-    
+
     document.addEventListener('mousedown', handleDocumentClick, true);
     return () => document.removeEventListener('mousedown', handleDocumentClick, true);
   }, [onDeselect, gl.domElement]);
-  
+
   // Escape key to deselect
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -138,10 +190,14 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
         onDeselect();
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onDeselect]);
+
+  // =============================================================================
+  // Render
+  // =============================================================================
 
   return (
     <group position={displayPos}>
@@ -150,15 +206,15 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
         scale={gizmoScale}
         lineWidth={3}
         depthTest={false}
-        autoTransform={true}
-        disableRotations={true}  // No rotation for holes
-        disableScaling={true}
-        disableSliders={true}
-        activeAxes={[true, false, true]}  // Only X and Z axes (XZ plane)
+        autoTransform
+        disableRotations
+        disableScaling
+        disableSliders
+        activeAxes={[true, false, true]} // Only X and Z axes (XZ plane)
         onDrag={handleDrag}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        visible={true}
+        visible
         anchor={[0, 0, 0]}
         annotations={false}
       >
@@ -166,10 +222,11 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
         <mesh ref={anchorRef} visible={false}>
           <sphereGeometry args={[0.1]} />
         </mesh>
-        
+
         {/* Close button at gizmo center */}
         <Html center style={{ pointerEvents: 'auto', userSelect: 'none' }}>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onDeselect();
@@ -183,7 +240,7 @@ const HoleTransformControls: React.FC<HoleTransformControlsProps> = ({
       </PivotControls>
 
       {/* Visual indicator - hole preview ring at baseplate surface level */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -5, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -GIZMO_Y_OFFSET, 0]}>
         <ringGeometry args={[holeDiameter / 2, holeDiameter / 2 + 0.15, 32]} />
         <meshBasicMaterial color={0x00ff88} transparent opacity={0.6} side={THREE.DoubleSide} />
       </mesh>

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Cuboid, AlertCircle, MousePointer2, Square, Circle, Triangle, Spline, Wand2, Trash2 } from 'lucide-react';
+import { Cuboid, AlertCircle, MousePointer2, Square, Circle, Triangle, Spline, Wand2, Trash2, Check } from 'lucide-react';
 
 export type SupportType = 'rectangular' | 'cylindrical' | 'conical' | 'custom';
 
@@ -94,6 +94,19 @@ const SupportsStepContent: React.FC<SupportsStepContentProps> = ({
 
   return (
     <div className="p-4 space-y-4">
+      {/* Supports Status - Small indicator */}
+      {supportsCount > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <Check className="w-5 h-5 text-green-500" />
+          <span className="text-sm font-tech text-green-600">
+            {supportsCount} support{supportsCount !== 1 ? 's' : ''} placed
+          </span>
+          <span className="text-xs text-muted-foreground font-tech ml-auto">
+            View in Properties Panel →
+          </span>
+        </div>
+      )}
+
       {/* Support Type Selection */}
       <div className="space-y-3">
         <Label className="text-xs font-tech text-muted-foreground uppercase tracking-wider">

@@ -4229,7 +4229,7 @@ const ThreeDScene: React.FC<ThreeDSceneProps> = ({
       const clampPos = (v: any, min: number, fallback: number) => Math.max(Number(v) || fallback, min);
 
       // Default baseplate thickness (5mm)
-      const DEFAULT_THICKNESS = 5;
+      const DEFAULT_THICKNESS = 4;
 
       let cfg: NonNullable<typeof basePlate> = {
         type: (option as any),
@@ -5682,7 +5682,7 @@ const ThreeDScene: React.FC<ThreeDSceneProps> = ({
         }}
         makeDefault
         enablePan={orbitControlsEnabled}
-        enableZoom={orbitControlsEnabled}
+        enableZoom={true}  // Always allow zoom, even during placement mode
         enableRotate={orbitControlsEnabled}
         minDistance={0.01}  // Allow unlimited zoom in
         maxDistance={Infinity}  // Allow unlimited zoom out
